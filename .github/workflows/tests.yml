@@ -29,8 +29,12 @@ jobs:
     defaults:
       run:
         shell: bash
+        # The guard recognizes its own scripts by the path secure-env/scripts/, as in a real install.
+        working-directory: secure-env
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          path: secure-env
 
       - name: Pick awk
         if: matrix.awk

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# pretool-guard — hook PreToolUse de Claude Code para secure-env.
+# pretool-guard — Claude Code PreToolUse hook for secure-env.
 #
-# Recibe el JSON del tool call por stdin y:
-#   - lo deja pasar (exit 0, sin salida),
-#   - lo bloquea con un mensaje accionable para Claude (exit 2, mensaje en stderr), o
-#   - pide confirmación al usuario (JSON con permissionDecision "ask") cuando un archivo
-#     que se va a leer contiene el valor de un secreto.
+# Receives the tool call JSON on stdin and:
+#   - lets it through (exit 0, no output),
+#   - blocks it with an actionable message for Claude (exit 2, message on stderr), or
+#   - asks the user for confirmation (JSON with permissionDecision "ask") when a file
+#     about to be read contains a secret value.
 #
-# Ante un error interno no bloquea (fail-open) y deja un aviso en stderr: un guardia roto
-# no debe frenar el trabajo; los permisos "deny" de settings.json siguen activos.
+# On an internal error it doesn't block (fail-open) and leaves a notice on stderr: a broken
+# guard shouldn't stop work; the "deny" permissions in settings.json stay active.
 set -u
 
 SE_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ export SE_ENVFILES SE_SCRIPTS_REL
 decision="$(printf '%s' "$payload" | LC_ALL=C awk -v MODE=hook -f "$SE_LIB/engine.awk" -f "$SE_LIB/guard.awk" 2>/dev/null)"
 rc=$?
 if [ $rc -ne 0 ] || [ -z "$decision" ]; then
-  echo "secure-env: el guardia no pudo analizar este tool call (rc=$rc); se dejó pasar." >&2
+  echo "secure-env: the guard could not parse this tool call (rc=$rc); it was let through." >&2
   exit 0
 fi
 

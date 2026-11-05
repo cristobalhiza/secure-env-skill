@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# posttool-redact — hook PostToolUse de Claude Code para secure-env (red de seguridad).
+# posttool-redact — Claude Code PostToolUse hook for secure-env (safety net).
 #
-# Recibe el resultado de cualquier herramienta y, si contiene el valor de un secreto (de los
-# .env del proyecto o de variables sensibles del entorno), lo reemplaza por [REDACTED:NOMBRE]
-# ANTES de que Claude lo vea, usando updatedToolOutput con la misma forma JSON del original.
+# Receives the result of any tool and, if it contains a secret value (from the project's
+# .env files or from sensitive environment variables), replaces it with [REDACTED:NAME]
+# BEFORE Claude sees it, using updatedToolOutput with the same JSON shape as the original.
 #
-# Cubre lo que el hook PreToolUse no puede prever: un script propio que imprime su config,
-# un log que trae un token, una respuesta de API que repite la credencial, un MCP, etc.
-# Si no hay nada que redactar, no imprime nada (cero efecto).
+# Covers what the PreToolUse hook can't foresee: your own script printing its config,
+# a log carrying a token, an API response echoing the credential, an MCP, etc.
+# If there's nothing to redact, it prints nothing (zero effect).
 set -u
 
 SE_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,6 +31,6 @@ keys="${rest%%$'\t'*}"
 redacted="${rest#*$'\t'}"
 SP="$(se_scripts_rel)"
 
-printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":%s,"additionalContext":"secure-env redacted the values of %s in this tool result; they appear as [REDACTED:NAME]. The real values are still in the environment: commands run through bash %s/run-secure.sh can use them."},"systemMessage":"secure-env: se redactaron %s en la salida de la herramienta."}\n' \
+printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":%s,"additionalContext":"secure-env redacted the values of %s in this tool result; they appear as [REDACTED:NAME]. The real values are still in the environment: commands run through bash %s/run-secure.sh can use them."},"systemMessage":"secure-env: redacted %s in the tool output."}\n' \
   "$redacted" "$keys" "$SP" "$keys"
 exit 0

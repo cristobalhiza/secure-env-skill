@@ -1,0 +1,2 @@
+# bash and awk break on CRLF: keep LF on every checkout, including Git for Windows (core.autocrlf=true).
+* text=auto eol=lf

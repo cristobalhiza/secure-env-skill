@@ -1,24 +1,24 @@
-# secure-env — análisis del hook PreToolUse (se carga junto a engine.awk con MODE=hook).
+# secure-env — PreToolUse hook analysis (loaded alongside engine.awk with MODE=hook).
 #
-# Lee el payload JSON de Claude Code por stdin y escribe UNA línea:
+# Reads Claude Code's JSON payload on stdin and writes ONE line:
 #   ALLOW
-#   DENY<TAB>mensaje para Claude
-#   ASK<TAB>motivo para el usuario
+#   DENY<TAB>message for Claude
+#   ASK<TAB>reason for the user
 #
-# Modelo: fuera del wrapper run-secure se bloquea todo lo que pueda imprimir un secreto
-# (leer .env, volcar el entorno, referenciar variables sensibles, trazas). Dentro del
-# wrapper se permite todo, porque su salida pasa por el redactor.
+# Model: outside the run-secure wrapper, anything that could print a secret is blocked
+# (reading .env, dumping the environment, referencing sensitive variables, traces). Inside the
+# wrapper everything is allowed, because its output goes through the redactor.
 
 BEGIN {
   if (MODE == "hook") { mode_hook(); exit 0 }
   if (MODE == "post") { mode_post(); exit 0 }
 }
 
-# ------------------------------------------------------------------ PostToolUse: red de seguridad
-# Redacta el resultado de CUALQUIER herramienta (Bash, Read, Grep, WebFetch, MCP...) antes de
-# que Claude lo vea. Trabaja sobre el JSON crudo de tool_response, así conserva su forma exacta
-# (objeto, arreglo o string): Claude Code descarta en silencio un updatedToolOutput con otra forma.
-# Imprime "NONE" si no hubo nada que redactar, o "REDACTED<TAB>claves<TAB>json-redactado".
+# ------------------------------------------------------------------ PostToolUse: safety net
+# Redacts the result of ANY tool (Bash, Read, Grep, WebFetch, MCP...) before Claude
+# sees it. Works on the raw tool_response JSON, so it keeps its exact shape
+# (object, array or string): Claude Code silently drops an updatedToolOutput with another shape.
+# Prints "NONE" if there was nothing to redact, or "REDACTED<TAB>keys<TAB>redacted-json".
 function mode_post(   payload, raw, red, j, i, keys, seen) {
   payload = read_all()
   raw = json_raw(payload, "tool_response")
@@ -42,7 +42,7 @@ function redact_one(s, t, k,   rep, res, pos, tl) {
   return res s
 }
 
-# Devuelve el texto JSON crudo (sin decodificar) del valor de "key".
+# Returns the raw (undecoded) JSON text of the value of "key".
 function json_raw(s, key,   pat, p, rest, c, i, n, depth, instr, start) {
   pat = "\"" key "\""
   while ((p = index(s, pat)) > 0) {
@@ -113,31 +113,31 @@ function g_sets(   i, n, a) {
   for (i = 1; i <= n; i++) BINEXT[a[i]] = 1
 }
 
-# ------------------------------------------------------------------ mensajes
+# ------------------------------------------------------------------ messages
 
-function m_wrap()   { return "`bash " SP "/run-secure.sh -- <comando>`" }
-function msg_read_env(f) { return "secure-env: leer " f " directamente está bloqueado (sus valores entrarían al chat). Para ver qué variables hay: `bash " SP "/list-env-keys.sh`. Para ver el contenido con los secretos tapados: `bash " SP "/redact.sh " f "`. Para usar sus valores en un comando: " m_wrap() "." }
-function msg_loader()   { return "secure-env: cargar un .env y ejecutar fuera del wrapper deja la salida sin redactar. Usa " m_wrap() " (carga .env y redacta stdout/stderr). Ej: `bash " SP "/run-secure.sh -- node app.js`." }
-function msg_dump()     { return "secure-env: volcar el entorno completo está bloqueado. Para ver qué variables existen: `bash " SP "/list-env-keys.sh`. Si de verdad necesitas el entorno de un proceso, ejecútalo dentro de " m_wrap() ", que redacta los valores." }
-function msg_trace()    { return "secure-env: el trazado de shell (set -x / bash -x) imprime las variables ya expandidas. Quítalo o ejecútalo dentro de " m_wrap() ", que redacta la salida." }
-function msg_ref(n)     { return "secure-env: este comando usa $" n " (secreto) fuera del wrapper, así que su salida no se redacta. Ejecútalo así: `bash " SP "/run-secure.sh -- '<comando completo>'` (con comillas SIMPLES: la variable se expande adentro, con el .env cargado). Para solo verificar que existe: `bash " SP "/list-env-keys.sh`." }
-function msg_outer(n)   { return "secure-env: $" n " se expandiría en tu shell, ANTES de entrar a run-secure (quedaría vacía o expuesta). Pasa el comando como un solo argumento entre comillas SIMPLES: `bash " SP "/run-secure.sh -- 'curl -sS -H \"Authorization: Bearer $" n "\" https://...'`." }
-function msg_inline(n)  { return "secure-env: el código inline lee " n " del entorno y su salida no se redacta. Ejecútalo dentro de " m_wrap() "." }
-function msg_verbose()  { return "secure-env: el modo verbose de curl/wget/httpie con credenciales (netrc, -K, cookies) imprime los headers de autenticación. Quita -v/--trace o ejecútalo dentro de " m_wrap() "." }
-function msg_edit_env(f){ return "secure-env: editar " f " con herramientas de archivo mostraría su contenido. Usa `bash " SP "/env-set.sh [-f " f "] CLAVE VALOR` (también `--generate [bytes]` y `--unset`)." }
-function msg_copy()     { return "secure-env: copiar un .env o archivo de credenciales a otra ruta lo deja legible sin protección. Si es un respaldo, usa un nombre .env.* (ej. .env.bak), que sigue protegido." }
-function msg_git_add()  { return "secure-env: no se versionan archivos .env ni de credenciales. Agrégalos a .gitignore (verifica con `git check-ignore -v <archivo>`)." }
-function msg_grep_rec(f) { return "secure-env: esta búsqueda recursiva también leería " f " y sus valores entrarían al chat. Exclúyelo (`grep -r --exclude='.env*' …`, en rg `-g '!.env*'`) o busca solo en las carpetas de código (ej. `grep -rn … src/`)." }
-function msg_git()      { return "secure-env: ese comando git mostraría el contenido de un .env. Para saber si cambió: `git status --short <archivo>`." }
-function msg_find()     { return "secure-env: find con -exec sobre archivos .env leería su contenido. Usa find solo para listar rutas, o `bash " SP "/list-env-keys.sh <archivo>`." }
-function msg_secret(f)  { return "secure-env: " f " es un archivo de credenciales (llave privada, .netrc, cuenta de servicio...). No se lee ni copia desde el agente; pide al usuario lo que necesites saber." }
-function msg_docker_cfg(){ return "secure-env: `docker compose config` imprime los valores interpolados del .env. Usa `--services`/`--volumes`, o ejecútalo dentro de " m_wrap() "." }
-function msg_docker_insp(){ return "secure-env: `docker inspect` sin --format incluye las variables de entorno del contenedor. Pide solo los campos necesarios, ej. `--format '{{.State.Status}}'`." }
-function msg_credcmd()  { return "secure-env: este comando imprime una credencial guardada (keychain, gh, gcloud, aws, 1Password, kubectl secret...). Úsala sin imprimirla, por sustitución dentro del comando que la necesita, ej. `GH_TOKEN=$(gh auth token) gh api user`, o pide al usuario lo que necesites saber." }
-function msg_docker_env(){ return "secure-env: listar el entorno de un contenedor/pod imprimiría sus secretos. Consulta variables puntuales no sensibles, o pide al usuario que lo revise." }
-function msg_ask(f, k)  { return "secure-env: " f " contiene el valor de " k " (de un .env o del entorno). Si apruebas, ese secreto entrará al contexto del agente. Alternativa sin exponerlo: bash " SP "/redact.sh " f }
+function m_wrap()   { return "`bash " SP "/run-secure.sh -- <command>`" }
+function msg_read_env(f) { return "secure-env: reading " f " directly is blocked (its values would end up in the chat). To see which variables exist: `bash " SP "/list-env-keys.sh`. To see the content with secrets masked: `bash " SP "/redact.sh " f "`. To use its values in a command: " m_wrap() "." }
+function msg_loader()   { return "secure-env: loading a .env and running outside the wrapper leaves the output unredacted. Use " m_wrap() " (loads .env and redacts stdout/stderr). E.g.: `bash " SP "/run-secure.sh -- node app.js`." }
+function msg_dump()     { return "secure-env: dumping the whole environment is blocked. To see which variables exist: `bash " SP "/list-env-keys.sh`. If you really need a process's environment, run it inside " m_wrap() ", which redacts the values." }
+function msg_trace()    { return "secure-env: shell tracing (set -x / bash -x) prints variables already expanded. Remove it or run it inside " m_wrap() ", which redacts the output." }
+function msg_ref(n)     { return "secure-env: this command uses $" n " (secret) outside the wrapper, so its output isn't redacted. Run it like this: `bash " SP "/run-secure.sh -- '<full command>'` (in SINGLE quotes: the variable expands inside, with the .env loaded). To only check that it exists: `bash " SP "/list-env-keys.sh`." }
+function msg_outer(n)   { return "secure-env: $" n " would expand in your shell, BEFORE entering run-secure (it would be empty or exposed). Pass the command as a single argument in SINGLE quotes: `bash " SP "/run-secure.sh -- 'curl -sS -H \"Authorization: Bearer $" n "\" https://...'`." }
+function msg_inline(n)  { return "secure-env: the inline code reads " n " from the environment and its output isn't redacted. Run it inside " m_wrap() "." }
+function msg_verbose()  { return "secure-env: curl/wget/httpie verbose mode with credentials (netrc, -K, cookies) prints the auth headers. Remove -v/--trace or run it inside " m_wrap() "." }
+function msg_edit_env(f){ return "secure-env: editing " f " with file tools would show its content. Use `bash " SP "/env-set.sh [-f " f "] KEY VALUE` (also `--generate [bytes]` and `--unset`)." }
+function msg_copy()     { return "secure-env: copying a .env or credentials file to another path leaves it readable without protection. For a backup, use a .env.* name (e.g. .env.bak), which stays protected." }
+function msg_git_add()  { return "secure-env: .env and credential files aren't committed. Add them to .gitignore (check with `git check-ignore -v <file>`)." }
+function msg_grep_rec(f) { return "secure-env: this recursive search would also read " f " and its values would end up in the chat. Exclude it (`grep -r --exclude='.env*' …`, in rg `-g '!.env*'`) or search only the code folders (e.g. `grep -rn … src/`)." }
+function msg_git()      { return "secure-env: that git command would show the content of a .env. To know whether it changed: `git status --short <file>`." }
+function msg_find()     { return "secure-env: find with -exec on .env files would read their content. Use find only to list paths, or `bash " SP "/list-env-keys.sh <file>`." }
+function msg_secret(f)  { return "secure-env: " f " is a credentials file (private key, .netrc, service account...). The agent doesn't read or copy it; ask the user for what you need to know." }
+function msg_docker_cfg(){ return "secure-env: `docker compose config` prints the values interpolated from the .env. Use `--services`/`--volumes`, or run it inside " m_wrap() "." }
+function msg_docker_insp(){ return "secure-env: `docker inspect` without --format includes the container's environment variables. Ask only for the fields you need, e.g. `--format '{{.State.Status}}'`." }
+function msg_credcmd()  { return "secure-env: this command prints a stored credential (keychain, gh, gcloud, aws, 1Password, kubectl secret...). Use it without printing it, via substitution inside the command that needs it, e.g. `GH_TOKEN=$(gh auth token) gh api user`, or ask the user for what you need to know." }
+function msg_docker_env(){ return "secure-env: listing a container/pod environment would print its secrets. Query specific non-sensitive variables, or ask the user to check it." }
+function msg_ask(f, k)  { return "secure-env: " f " contains the value of " k " (from a .env or the environment). If you approve, that secret will enter the agent's context. Alternative without exposing it: bash " SP "/redact.sh " f }
 
-# ------------------------------------------------------------------ utilidades
+# ------------------------------------------------------------------ utilities
 
 function read_all(   s, line, n) {
   s = ""; n = 0
@@ -162,7 +162,7 @@ function is_binary(p,   e) {
 
 function file_exists(p,   x, rc) { rc = (getline x < p); close(p); return (rc >= 0) }
 
-# ¿El nombre de archivo (basename) es un .env con secretos? Las plantillas no cuentan.
+# Is the file name (basename) a .env with secrets? Templates don't count.
 function is_env_name(b,   lb, stem) {
   lb = tolower(b)
   if (lb == ".env" || lb == ".envrc" || lb == ".dev.vars") return 1
@@ -181,7 +181,7 @@ function is_secret_path(p,   b) {
   if (p == "") return 0
   b = basename_of(p)
   if (b ~ SECFILERE) return 1
-  # globs con "/" (ej. .aws/credentials) se comparan contra el final de la ruta
+  # globs with "/" (e.g. .aws/credentials) are matched against the end of the path
   return (p ~ SECPATHRE_RE())
 }
 
@@ -202,8 +202,8 @@ function SECPATHRE_RE(   n, a, i, out, g, r, j, c) {
   return SECPATHRE
 }
 
-# Busca referencias a archivos .env / de credenciales dentro de una palabra (también dentro de código).
-# Deja en ES_ENV y ES_SEC la cantidad encontrada y en ES_NAME la primera.
+# Looks for references to .env / credential files inside a word (also inside code).
+# Leaves the count found in ES_ENV and ES_SEC, and the first one in ES_NAME.
 function env_scan(w,   s, run, b) {
   ES_ENV = 0; ES_SEC = 0; ES_NAME = ""
   s = w
@@ -221,7 +221,7 @@ function name_sens(n) {
   return name_is_sensitive(n)
 }
 
-# Referencias de shell a variables sensibles: $X, ${X}, ${X:-y}, $env:X. Ignora ${#X} (largo).
+# Shell references to sensitive variables: $X, ${X}, ${X:-y}, $env:X. Ignores ${#X} (length).
 function shell_ref(t,   s, m, name) {
   s = t
   while (match(s, /\$(\{#?)?[A-Za-z_][A-Za-z0-9_]*/)) {
@@ -236,7 +236,7 @@ function shell_ref(t,   s, m, name) {
   return ""
 }
 
-# Referencias en código (Node/Python/Ruby/PHP/Perl/Deno/Bun) a variables sensibles.
+# References in code (Node/Python/Ruby/PHP/Perl/Deno/Bun) to sensitive variables.
 function code_ref(t,   s, m, name, pat) {
   pat = "(process\\.env\\.|process\\.env\\[[\"'`]|Bun\\.env\\.|import\\.meta\\.env\\.|Deno\\.env\\.get\\([\"']|os\\.environ\\[[\"']|os\\.environ\\.get\\([\"']|getenv\\([\"']|\\$_ENV\\[[\"']|\\$_SERVER\\[[\"']|ENV\\[[\"']|ENV\\.fetch\\([\"']|\\$ENV\\{|\\$env:)[A-Za-z_][A-Za-z0-9_]*"
   s = t
@@ -263,7 +263,7 @@ function ps_dump(t,   l) {
   return (l ~ /(get-childitem|gci|dir|ls)[ \t]+env:[ \t]*($|[|;)}])/ || l ~ /getenvironmentvariables\(/)
 }
 
-# ------------------------------------------------------------------ decisiones por herramienta
+# ------------------------------------------------------------------ per-tool decisions
 
 function decide_read(fp,   b, key, p) {
   if (fp == "") return ""
@@ -308,11 +308,11 @@ function decide_cmd(cmd,   first, r, i, key, p) {
   return ""
 }
 
-# ------------------------------------------------------------------ tokenizador de shell
-# Produce segmentos (comandos simples) con sus palabras sin comillas.
-#   SEGW[s,k] texto   SEGX[s,k] partes expandibles (fuera de comillas simples)
-#   SEGR[s,k] "" | ">" (destino de escritura) | "<" (lectura) | "&" (fd) | "h" (here-string)
-#   SEGEND[s] "|" si el segmento entrega su salida por pipe
+# ------------------------------------------------------------------ shell tokenizer
+# Produces segments (simple commands) with their unquoted words.
+#   SEGW[s,k] text   SEGX[s,k] expandable parts (outside single quotes)
+#   SEGR[s,k] "" | ">" (write target) | "<" (read) | "&" (fd) | "h" (here-string)
+#   SEGEND[s] "|" if the segment pipes its output
 
 function seg_new(depth) { NS++; SEGN[NS] = 0; SEGEND[NS] = ""; SEGHB[NS] = ""; SEGHBQ[NS] = 0; SEGD[NS] = depth; SEGSUB[NS] = 0; return NS }
 
@@ -332,7 +332,7 @@ function t_push(kind) {
   T_stk_q[T_sp] = T_q; T_stk_k[T_sp] = kind; T_stk_pend[T_sp] = T_pend
   T_cur = ""; T_x = ""; T_have = 0; T_q = ""; T_pend = ""
   T_s = seg_new(T_depth)
-  SEGSUB[T_s] = (kind == "$" || kind == "`")   # su salida se captura, no se imprime
+  SEGSUB[T_s] = (kind == "$" || kind == "`")   # its output is captured, not printed
 }
 
 function t_pop() {
@@ -372,7 +372,7 @@ function tokenize(str, depth,   n, i, c, c2, c3, j, start) {
       T_have = 1; i++; continue
     }
     if (c2 == "$(" ) {
-      if (substr(str, i + 2, 1) == "(") {  # $(( aritmética )): se copia tal cual
+      if (substr(str, i + 2, 1) == "(") {  # $(( arithmetic )): copied as is
         j = index(substr(str, i), "))"); if (j == 0) j = n - i
         T_cur = T_cur substr(str, i, j + 1); T_x = T_x substr(str, i, j + 1); T_have = 1; i += j; continue
       }
@@ -386,7 +386,7 @@ function tokenize(str, depth,   n, i, c, c2, c3, j, start) {
       if (c == "\"") { T_q = ""; continue }
       T_cur = T_cur c; T_x = T_x c; continue
     }
-    # --- fuera de comillas
+    # --- outside quotes
     if (c == "'" || c == "\"") { T_q = c; T_have = 1; T_curq = 1; continue }
     if (c == " " || c == "\t") { t_endword(); continue }
     if (c == "\n") {
@@ -427,7 +427,7 @@ function tokenize(str, depth,   n, i, c, c2, c3, j, start) {
   return start
 }
 
-# ------------------------------------------------------------------ análisis de segmentos
+# ------------------------------------------------------------------ segment analysis
 
 function analyze_range(a, b, depth,   s, r) {
   for (s = a; s <= b; s++) { r = analyze_seg(s, depth); if (r != "") return r }
@@ -438,7 +438,7 @@ function cmdbase(w) { sub(/.*[\/\\]/, "", w); w = tolower(w); sub(/\.(exe|cmd|ba
 
 function is_assign(w) { return (w ~ /^[A-Za-z_][A-Za-z0-9_]*\+?=/) }
 
-# Calcula P[] (palabras posicionales), CI (índice del comando) y CMD para el segmento s.
+# Computes P[] (positional words), CI (command index) and CMD for segment s.
 function seg_words(s,   k, np, i, c, w) {
   np = 0; OUTRED = 0; HSTR = ""; HSTRX = ""; INSRC_ENV = ""; ENVDUMP = 0
   for (k = 1; k <= SEGN[s]; k++) {
@@ -451,7 +451,7 @@ function seg_words(s,   k, np, i, c, w) {
   NP_ = np
   i = 1
   while (i <= np && is_assign(P[i])) i++
-  # envoltorios que no son el comando real
+  # wrappers that aren't the real command
   while (i <= np) {
     c = cmdbase(P[i])
     if (c == "sudo" || c == "doas") { i++; while (i <= np && P[i] ~ /^-/) { if (P[i] ~ /^-[ugCDhpRrtU]$/) i++; i++ } continue }
@@ -491,12 +491,12 @@ function analyze_seg(s, depth,   np, k, w, a, j, sub1, last, n, code, rf, envAny
   np = seg_words(s)
   if (INSRC_ENV != "" && !(CI <= np && P[CI] ~ SCRIPTRE)) return "DENY\t" msg_read_env(INSRC_ENV)
   if (CI > np && !ENVDUMP) {
-    # solo asignaciones: X=$(...) se analiza en su propio segmento; aquí nada que imprimir
+    # assignments only: X=$(...) is analyzed in its own segment; nothing to print here
     return ""
   }
 
-  # 1) Nuestros scripts: run-secure permite todo lo que va dentro (su salida se redacta),
-  #    salvo que una variable secreta se expanda AFUERA (quedaría vacía o en la línea de comando).
+  # 1) Our scripts: run-secure allows everything inside it (its output is redacted),
+  #    unless a secret variable expands OUTSIDE (it would be empty or on the command line).
   a = 0
   if (P[CI] ~ SCRIPTRE) a = CI
   else if (CMD in SHELLS) { for (k = CI + 1; k <= np; k++) { if (P[k] ~ /^-/) continue; if (P[k] ~ SCRIPTRE) a = k; break } }
@@ -508,13 +508,13 @@ function analyze_seg(s, depth,   np, k, w, a, j, sub1, last, n, code, rf, envAny
     return ""
   }
 
-  # 2) Lista blanca configurable
+  # 2) Configurable allowlist
   joined = ""
   for (k = CI; k <= np; k++) joined = joined (joined == "" ? "" : " ") P[k]
   nre = split(ENVIRON["SECURE_ENV_ALLOW_COMMANDS"], ALW, "\n")
   for (j = 1; j <= nre; j++) { re = ALW[j]; if (re != "" && joined ~ re) return "" }
 
-  # 3) Trazas de shell
+  # 3) Shell traces
   if (CMD == "set") {
     for (k = CI + 1; k <= np; k++) { if (P[k] ~ /^-[A-Za-z]*x/) return "DENY\t" msg_trace(); if (P[k] == "-o" && P[k + 1] == "xtrace") return "DENY\t" msg_trace() }
     if (CI == np) return "DENY\t" msg_dump()
@@ -527,7 +527,7 @@ function analyze_seg(s, depth,   np, k, w, a, j, sub1, last, n, code, rf, envAny
     }
   }
 
-  # 4) Volcados del entorno
+  # 4) Environment dumps
   if (CMD == "env" && ENVDUMP) return "DENY\t" msg_dump()
   if (CMD == "printenv") {
     a = 0
@@ -545,7 +545,7 @@ function analyze_seg(s, depth,   np, k, w, a, j, sub1, last, n, code, rf, envAny
   }
   for (k = CI; k <= np; k++) if (ps_dump(P[k])) return "DENY\t" msg_dump()
 
-  # 5) Shells e intérpretes: analizar el código que reciben
+  # 5) Shells and interpreters: analyze the code they receive
   if (depth < 4 && (CMD in SHELLS)) {
     for (k = CI + 1; k <= np; k++) {
       if (P[k] ~ /^-[A-Za-z]*c[A-Za-z]*$/ && k < np) { rf = analyze_code(P[k + 1], depth); if (rf != "") return rf; break }
@@ -578,11 +578,11 @@ function analyze_seg(s, depth,   np, k, w, a, j, sub1, last, n, code, rf, envAny
     for (k = CI + 1; k < np; k++) if (P[k] == "-m" && P[k + 1] ~ /^dotenv/) return "DENY\t" msg_loader()
   }
 
-  # 6) Loaders de .env
+  # 6) .env loaders
   if (CMD in LOADERS) return "DENY\t" msg_loader()
   for (k = CI; k <= np; k++) if (P[k] ~ /^--env-file(=|$)/) return "DENY\t" msg_loader()
 
-  # 7) HTTP verbose con credenciales implícitas
+  # 7) Verbose HTTP with implicit credentials
   if (CMD == "curl" || CMD == "wget" || CMD == "http" || CMD == "https" || CMD == "xh") {
     a = 0; rf = 0
     for (k = CI + 1; k <= np; k++) {
@@ -616,11 +616,11 @@ function analyze_seg(s, depth,   np, k, w, a, j, sub1, last, n, code, rf, envAny
     for (k = 1; k <= n; k++) delete A1[k]
   }
 
-  # 8b) Comandos que imprimen credenciales de un gestor (no están en .env, así que no se pueden redactar).
-  #     Dentro de $(...) su salida se captura, no se imprime: se permite.
+  # 8b) Commands that print credentials from a manager (not in .env, so they can't be redacted).
+  #     Inside $(...) their output is captured, not printed: allowed.
   if (!SEGSUB[s] && is_cred_printer(np)) return "DENY\t" msg_credcmd()
 
-  # 9) Variables sensibles usadas fuera del wrapper
+  # 9) Sensitive variables used outside the wrapper
   if (!(CMD == "unset" || CMD == "test" || CMD == "[" || CMD == "[[" || CMD == "readonly" || CMD == "local" || CMD == "export")) {
     txt = ""
     for (k = CI; k <= np; k++) txt = txt " " PX[k]
@@ -628,7 +628,7 @@ function analyze_seg(s, depth,   np, k, w, a, j, sub1, last, n, code, rf, envAny
     if (SEGHB[s] != "" && !SEGHBQ[s]) txt = txt " " SEGHB[s]
     rf = shell_ref(txt)
     if (rf != "") {
-      # escribir a un archivo con echo/printf/cat es aceptable (no llega al chat)
+      # writing to a file with echo/printf/cat is fine (it doesn't reach the chat)
       if (!(OUTRED && (CMD == "echo" || CMD == "printf" || CMD == "cat" || CMD == "tee"))) {
         if (SEGEND[s] == "|" && (CMD == "echo" || CMD == "printf")) {
           nxt = seg_peek_cmd(s + 1)
@@ -639,7 +639,7 @@ function analyze_seg(s, depth,   np, k, w, a, j, sub1, last, n, code, rf, envAny
     }
   }
 
-  # 10) Referencias a archivos .env o de credenciales
+  # 10) References to .env or credential files
   envAny = 0; secAny = 0; envw = ""
   text_args(np)
   for (k = 1; k <= np; k++) {
@@ -671,17 +671,17 @@ function analyze_seg(s, depth,   np, k, w, a, j, sub1, last, n, code, rf, envAny
     return "DENY\t" msg_read_env(envw)
   }
 
-  # 10b) Búsqueda recursiva sobre una carpeta que contiene un .env: lo lee aunque no se nombre.
+  # 10b) Recursive search over a folder containing a .env: it reads it even if not named.
   if (CMD in GREPS) { rf = grep_rec_env(np); if (rf != "") return "DENY\t" msg_grep_rec(rf) }
 
-  # 11) Lectores de archivos comunes: revisar si el archivo contiene un secreto
+  # 11) Common file readers: check whether the file contains a secret
   if (CMD in READERS) for (k = CI + 1; k <= np; k++) if (P[k] !~ /^-/ && !(k in TXT)) CHK[++NCHK] = P[k]
   return ""
 }
 
-# Marca en TXT las palabras que son texto y no rutas: el mensaje de `git commit -m`, y en grep/rg/ag/ack
-# el patrón, los valores de opciones y las exclusiones. En GREXCL queda si alguna exclusión cubre los .env.
-# En grep, GREPPATHS/NGP quedan con las rutas a buscar.
+# Marks in TXT the words that are text and not paths: the `git commit -m` message, and in grep/rg/ag/ack
+# the pattern, option values and exclusions. GREXCL records whether some exclusion covers .env files.
+# In grep, GREPPATHS/NGP hold the paths to search.
 function text_args(np,   k, w, pat, explicit, takes) {
   split("", TXT); GREXCL = 0; NGP = 0
   if (CMD == "git") {
@@ -693,7 +693,7 @@ function text_args(np,   k, w, pat, explicit, takes) {
     return
   }
   if (!(CMD in GREPS)) return
-  # opciones que llevan su valor en la palabra siguiente
+  # options that take their value in the next word
   takes = (CMD == "rg") ? "^(-e|-f|-g|-t|-T|-m|-A|-B|-C|-M|-j|-r|-E|--regexp|--file|--glob|--iglob|--type|--type-not|--max-count|--context|--before-context|--after-context|--replace|--encoding|--max-filesize|--ignore-file)$" \
                         : "^(-e|-f|-m|-A|-B|-C|-d|-D|--regexp|--file|--max-count|--context|--before-context|--after-context|--include|--exclude|--exclude-dir|--exclude-from|--label|--ignore-dir|--ignore-file)$"
   explicit = 0
@@ -705,20 +705,20 @@ function text_args(np,   k, w, pat, explicit, takes) {
     if (w ~ /^--(regexp|include)=/) { TXT[k] = 1; continue }
     if (w ~ takes && k < np) {
       k++
-      if (w ~ /^(-f|--file)$/) continue                       # -f lee patrones de un archivo: es una ruta
+      if (w ~ /^(-f|--file)$/) continue                       # -f reads patterns from a file: it's a path
       TXT[k] = 1
       if (w ~ /^(--exclude|--exclude-dir|--ignore-dir|--ignore-file)$/ && P[k] ~ /env/) GREXCL = 1
       if (w ~ /^(-g|--glob|--iglob)$/ && P[k] ~ /^!.*env/) GREXCL = 1
       continue
     }
     if (w ~ /^-/) continue
-    if (!pat) { TXT[k] = 1; pat = 1; continue }               # primer argumento suelto = patrón
+    if (!pat) { TXT[k] = 1; pat = 1; continue }               # first bare argument = pattern
     GREPPATHS[++NGP] = w
   }
 }
 
-# ¿Esta búsqueda recorre una carpeta del proyecto que contiene un .env? Devuelve su nombre o "".
-# grep/ack entran a archivos ocultos; rg y ag solo con --hidden/-u (por defecto saltan ocultos e ignorados).
+# Does this search walk a project folder containing a .env? Returns its name or "".
+# grep/ack enter hidden files; rg and ag only with --hidden/-u (by default they skip hidden and ignored files).
 function grep_rec_env(np,   k, w, rec, n, F, i, j, t, f) {
   if (GREXCL) return ""
   rec = 0
@@ -771,7 +771,7 @@ function analyze_code(code, depth,   a, b) {
   return analyze_range(a, b, depth + 1)
 }
 
-# ------------------------------------------------------------------ JSON mínimo (sin dependencias)
+# ------------------------------------------------------------------ minimal JSON (no dependencies)
 
 function json_get(s, key,   pat, p, rest, i, n, c, out, h) {
   pat = "\"" key "\""

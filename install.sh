@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# install — activa secure-env en este proyecto. Es idempotente: puedes correrlo de nuevo.
+# install — enables secure-env in this project. It's idempotent: you can run it again.
 #
-#   bash .claude/skills/secure-env/install.sh            # instala
-#   bash .claude/skills/secure-env/install.sh --check    # solo muestra qué falta
+#   bash .claude/skills/secure-env/install.sh            # install
+#   bash .claude/skills/secure-env/install.sh --check    # only show what's missing
 #
-# Hace tres cosas:
-#   1. Fusiona en .claude/settings.json los permisos "deny" y los dos hooks (PreToolUse y
-#      PostToolUse), sin borrar lo que ya tengas. Deja respaldo en settings.json.bak.
-#   2. Agrega a .gitignore las entradas de .env que falten (y config.local.sh).
-#   3. Corre la suite de pruebas.
+# It does three things:
+#   1. Merges the "deny" permissions and both hooks (PreToolUse and PostToolUse) into
+#      .claude/settings.json, without deleting what you already have. Backup in settings.json.bak.
+#   2. Adds the missing .env entries (and config.local.sh) to .gitignore.
+#   3. Runs the test suite.
 set -u
 
 SKILL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +21,7 @@ CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
 say() { printf '%s\n' "$*"; }
 
 if [ "$(basename "$CLAUDE_DIR")" != ".claude" ]; then
-  say "Este skill debe estar en <proyecto>/.claude/skills/secure-env (está en $SKILL)."; exit 1
+  say "This skill must live in <project>/.claude/skills/secure-env (it's in $SKILL)."; exit 1
 fi
 
 # ---------------------------------------------------------------- 1. settings.json
@@ -93,14 +93,14 @@ else
   rc=127
 fi
 if [ $rc -eq 127 ]; then
-  say "   No encontré python3 ni node para fusionar el JSON."
-  say "   Copia a mano el contenido de $EXAMPLE dentro de $SETTINGS."
+  say "   Couldn't find python3 or node to merge the JSON."
+  say "   Copy the content of $EXAMPLE into $SETTINGS by hand."
 elif [ $rc -ne 0 ]; then
-  say "   No pude leer $SETTINGS (¿JSON inválido?):"; say "   $res"; exit 1
+  say "   Couldn't read $SETTINGS (invalid JSON?):"; say "   $res"; exit 1
 elif [ "$res" = "OK" ]; then
-  say "   Ya estaba configurado."
+  say "   Already configured."
 else
-  if [ $CHECK = 1 ]; then say "   Falta:"; else say "   Agregado (respaldo en settings.json.bak si existía):"; fi
+  if [ $CHECK = 1 ]; then say "   Missing:"; else say "   Added (backup in settings.json.bak if it existed):"; fi
   printf '%s\n' "$res" | sed 's/^/     - /'
 fi
 
@@ -127,24 +127,24 @@ while IFS= read -r line; do
 done <<EOF
 $want
 EOF
-if [ -z "$added" ]; then say "   Ya estaba cubierto."
-elif [ $CHECK = 1 ]; then say "   Faltan:"; printf '%s' "$added" | sed 's/^/     - /'
+if [ -z "$added" ]; then say "   Already covered."
+elif [ $CHECK = 1 ]; then say "   Missing:"; printf '%s' "$added" | sed 's/^/     - /'
 else
   { [ -f "$GI" ] && [ -n "$(tail -c1 "$GI")" ] && echo; echo "# secure-env"; printf '%s' "$added"; } >> "$GI"
-  say "   Agregado:"; printf '%s' "$added" | sed 's/^/     - /'
+  say "   Added:"; printf '%s' "$added" | sed 's/^/     - /'
 fi
 if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse >/dev/null 2>&1; then
   tracked="$(git -C "$ROOT" ls-files -- '.env' '*.env' '.env.*' '**/.env' '**/.env.*' 2>/dev/null | grep -Ev '\.(example|sample|template)$' || true)"
   if [ -n "$tracked" ]; then
-    say "   OJO: estos archivos ya están versionados en git y .gitignore no los saca:"
+    say "   WARNING: these files are already tracked in git and .gitignore won't remove them:"
     printf '%s\n' "$tracked" | sed 's/^/     - /'
-    say "   Sácalos del índice con: git rm --cached <archivo>  (y rota esas credenciales)."
+    say "   Remove them from the index with: git rm --cached <file>  (and rotate those credentials)."
   fi
 fi
 
-# ---------------------------------------------------------------- 3. pruebas
-say "== 3/3 pruebas"
-if [ $CHECK = 1 ]; then say "   (omitidas con --check)"; exit 0; fi
+# ---------------------------------------------------------------- 3. tests
+say "== 3/3 tests"
+if [ $CHECK = 1 ]; then say "   (skipped with --check)"; exit 0; fi
 if bash "$SKILL/tests/run-tests.sh" >/tmp/secure-env-tests.$$ 2>&1; then
   say "   $(tail -1 /tmp/secure-env-tests.$$)"
 else
@@ -152,5 +152,5 @@ else
 fi
 rm -f /tmp/secure-env-tests.$$
 say
-say "Listo. Reinicia Claude Code (o abre /hooks) para que tome los hooks."
-say "Prueba en vivo opcional: ver README.md, sección 'Verificar que funciona'."
+say "Done. Restart Claude Code (or open /hooks) so it picks up the hooks."
+say "Optional live test: see README.md, section 'Check that it works'."

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# list-env-keys — muestra las variables de los .env SIN sus valores secretos.
+# list-env-keys — shows the variables in .env files WITHOUT their secret values.
 #
-#   list-env-keys.sh [archivo.env ...]
+#   list-env-keys.sh [file.env ...]
 #
-# Sin argumentos lista todos los .env del proyecto. Los secretos aparecen como
-# [secreto, len=N]; las variables públicas o no sensibles muestran su valor.
+# With no arguments it lists every .env in the project. Secrets show up as
+# [secret, len=N]; public or non-sensitive variables show their value.
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 

@@ -1,51 +1,51 @@
 ---
 name: secure-env
 description: >-
-  Protege los secretos de un proyecto mientras el agente trabaja: evita que valores de .env, API keys,
-  tokens, contraseñas y URLs de webhooks entren al contexto o a los registros de sesión, y da herramientas
-  para usarlos sin verlos (run-secure, list-env-keys, redact, env-set). Úsala siempre que la tarea toque
-  archivos .env o variables de entorno, credenciales, llamadas curl o scripts autenticados, conexiones a
-  bases de datos, docker o ssh con configuración sensible, depuración de configuración, o revisar si un
-  secreto quedó expuesto; también cuando un hook de secure-env bloquee un comando, aparezca
-  [REDACTED:NOMBRE] en una salida, o haya que instalarla o adaptarla a otro agente. Basta con que el
-  trabajo necesite una credencial, aunque nadie diga "secreto" ni "seguridad". In English: use it for any
-  task involving .env files, environment variables, API keys, tokens, passwords, webhook URLs,
-  database URLs or authenticated scripts.
+  Use when a task needs real credentials without exposing them: .env values, API keys, tokens,
+  passwords, webhook or database URLs. Covers saving, pasting or rotating a key or token someone gave
+  you (e.g. into .env.production), running curl or authenticated scripts, connecting services (db,
+  docker, ssh), debugging 401/403 errors or variables that don't load, auditing whether a secret
+  leaked, and when a secure-env hook blocks a command, [REDACTED:NAME] shows up, or the skill must be
+  installed or adapted to another agent. Provides run-secure, list-env-keys, redact and env-set to
+  work with secrets without seeing them. Applies whenever the work needs a credential, even if nobody
+  says "secret". Not for tasks that only write files without sensitive values (.gitignore or
+  .env.example with sample values, docs, tests, builds). En español: úsala para tareas con
+  credenciales reales, guardar en el .env una API key que te pasaron, o llamadas autenticadas.
 license: MIT
-compatibility: bash y awk (macOS, Linux, WSL, Git Bash). Hooks listos para Claude Code; otros agentes vía ADAPTERS.md.
+compatibility: bash and awk (macOS, Linux, WSL, Git Bash). Hooks ready for Claude Code; other agents via ADAPTERS.md.
 ---
 
 # secure-env
 
-Lo que una herramienta imprime entra a tu contexto y queda guardado en los registros de sesión, en texto plano y en disco. Un `cat .env` para "revisar" basta para que una API key quede ahí para siempre. Esta skill evita eso con tres capas:
+Whatever a tool prints enters your context and is stored in the session logs, in plain text, on disk. A single `cat .env` to "take a look" is enough for an API key to stay there forever. This skill prevents that with three layers:
 
-1. **Hook PreToolUse**: antes de ejecutar, bloquea lo que imprimiría un secreto (leer un `.env`, volcar el entorno, usar `$SECRETO` fuera del wrapper, `set -x`, `curl -v` con credenciales…). Su mensaje dice qué usar en su lugar.
-2. **Hook PostToolUse**: revisa la salida de cualquier herramienta y reemplaza cada valor secreto por `[REDACTED:NOMBRE]` antes de que lo veas, también en el registro de la sesión.
-3. **Esta guía**: cómo trabajar con credenciales sin necesitar ver sus valores.
+1. **PreToolUse hook**: before running, it blocks anything that would print a secret (reading a `.env`, dumping the environment, using `$SECRET` outside the wrapper, `set -x`, `curl -v` with credentials…). Its message says what to use instead.
+2. **PostToolUse hook**: it scans the output of every tool and replaces each secret value with `[REDACTED:NAME]` before you see it, in the session log too.
+3. **This guide**: how to work with credentials without needing to see their values.
 
-Las rutas de abajo son relativas a la raíz del proyecto; si estás en una subcarpeta, ajústalas (ej. `../../.claude/...`). Si no estás en Claude Code, lee primero [la última sección](#si-no-estás-en-claude-code).
+The paths below are relative to the project root; if you are in a subfolder, adjust them (e.g. `../../.claude/...`). If you are not in Claude Code, read [the last section](#if-you-are-not-in-claude-code) first.
 
-## Herramientas
+## Tools
 
-| Necesito… | Uso |
+| I need to… | Use |
 |---|---|
-| Saber qué variables hay | `bash .claude/skills/secure-env/scripts/list-env-keys.sh` (nombres y largo; valores solo de las públicas) |
-| Ver un .env o un log sin exponer secretos | `bash .claude/skills/secure-env/scripts/redact.sh <archivo>` |
-| Ejecutar algo que usa credenciales | `bash .claude/skills/secure-env/scripts/run-secure.sh -- '<línea de shell>'` |
-| Saber si un secreto aparece en algún archivo, sin verlo | `run-secure` con un comando que solo cuente (ejemplo abajo) |
-| Agregar/cambiar/borrar una variable | `bash .claude/skills/secure-env/scripts/env-set.sh [-f archivo] CLAVE VALOR` · `CLAVE --generate [bytes]` · `CLAVE --unset` |
+| Know which variables exist | `bash .claude/skills/secure-env/scripts/list-env-keys.sh` (names and length; values only for public ones) |
+| Look at a .env or a log without exposing secrets | `bash .claude/skills/secure-env/scripts/redact.sh <file>` |
+| Run something that uses credentials | `bash .claude/skills/secure-env/scripts/run-secure.sh -- '<shell line>'` |
+| Know whether a secret appears in some file, without seeing it | `run-secure` with a command that only counts (example below) |
+| Add/change/delete a variable | `bash .claude/skills/secure-env/scripts/env-set.sh [-f file] KEY VALUE` · `KEY --generate [bytes]` · `KEY --unset` |
 
-Para buscar un valor sin verlo, compáralo dentro de `run-secure` e imprime solo conteos:
+To search for a value without seeing it, compare it inside `run-secure` and print only counts:
 
 ```bash
 bash .claude/skills/secure-env/scripts/run-secure.sh -- 'grep -rlF "$API_KEY" logs/ | wc -l'
 ```
 
-## Ejecutar con credenciales: run-secure
+## Running with credentials: run-secure
 
-`run-secure` carga `./.env` y `./.env.local` (o los de la raíz), ejecuta el comando y redacta stdout y stderr. Adentro puedes usar `-v`, `set -x` o imprimir lo que quieras: la salida se limpia. Devuelve el código de salida del comando.
+`run-secure` loads `./.env` and `./.env.local` (or the ones at the root), runs the command and redacts stdout and stderr. Inside it you can use `-v`, `set -x` or print whatever you want: the output gets cleaned. It returns the command's exit code.
 
-Pasa la línea completa como **un solo argumento entre comillas simples**, para que `$VARIABLE` se expanda adentro, con el .env ya cargado, y no en tu shell, donde estaría vacía:
+Pass the whole line as **a single argument in single quotes**, so `$VARIABLE` expands inside, with the .env already loaded, and not in your shell, where it would be empty:
 
 ```bash
 bash .claude/skills/secure-env/scripts/run-secure.sh -- 'curl -sS -H "Authorization: Bearer $HUBSPOT_TOKEN" "https://api.hubapi.com/crm/v3/objects/contacts?limit=1"'
@@ -54,63 +54,63 @@ bash .claude/skills/secure-env/scripts/run-secure.sh -- node scripts/sync.js
 bash .claude/skills/secure-env/scripts/run-secure.sh -f .env.production -- npm run migrate
 ```
 
-Lo que no usa secretos (`npm run dev`, `git status`, `ls`) se ejecuta normal, sin wrapper.
+Anything that doesn't use secrets (`npm run dev`, `git status`, `ls`) runs normally, without the wrapper.
 
-## Reglas
+## Rules
 
-- **No leas un `.env`** con Read, cat, grep, sed, python, node ni nada: sus valores quedarían en el contexto y en el registro. Para nombres, `list-env-keys`; para el contenido, `redact.sh`.
-- **No escribas un valor secreto literal** en un comando, archivo de código, commit o respuesta. Referéncialo por nombre (`$API_KEY`, `process.env.API_KEY`); el valor vive solo en el `.env`.
-- **Si ves `[REDACTED:NOMBRE]`**, el sistema funciona. No intentes recuperar el valor. Para confirmar que una credencial es válida, haz una llamada real dentro de `run-secure` y mira el status HTTP.
-- **Si el usuario te pega un secreto en el chat**, guárdalo con `env-set.sh` y no lo repitas en tus respuestas: cada repetición es otra copia en el registro.
-- **Para crear un `.env` nuevo**: `cp .env.example .env` y luego `env-set.sh` por cada valor. No lo edites con Edit/Write, que mostrarían su contenido.
-- **No agregues `.env` a git.** Si `git status` muestra un `.env`, avísale al usuario.
-- **Si una salida muestra un secreto de todos modos** (un valor que no estaba en ningún `.env`, un token que devolvió una API), dile al usuario qué fue y dónde quedó, sin repetirlo, para que decida si rotarlo.
+- **Don't read a `.env`** with Read, cat, grep, sed, python, node or anything else: its values would end up in the context and the log. For names, `list-env-keys`; for the content, `redact.sh`.
+- **Don't write a literal secret value** in a command, code file, commit or reply. Reference it by name (`$API_KEY`, `process.env.API_KEY`); the value lives only in the `.env`.
+- **If you see `[REDACTED:NAME]`**, the system is working. Don't try to recover the value. To confirm a credential is valid, make a real call inside `run-secure` and check the HTTP status.
+- **If the user pastes a secret in the chat**, save it with `env-set.sh` and don't repeat it in your replies: each repetition is another copy in the log.
+- **To create a new `.env`**: `cp .env.example .env` and then `env-set.sh` for each value. Don't edit it with Edit/Write, which would show its content.
+- **Don't add `.env` to git.** If `git status` shows a `.env`, tell the user.
+- **If some output shows a secret anyway** (a value that wasn't in any `.env`, a token returned by an API), tell the user what it was and where it ended up, without repeating it, so they can decide whether to rotate it.
 
-## Cuando el guardia bloquea algo
+## When the guard blocks something
 
-Primero distingue qué pasó:
+First figure out what happened:
 
-- **Bloqueo real**: el comando habría mostrado un valor (lee el `.env`, imprime una variable, hace un `grep -r` que entra al `.env`). Usa la alternativa que da el mensaje. No lo rodees para conseguir el valor por otro camino (copiar el archivo, codificarlo en base64, partirlo, leerlo desde otro intérprete): el bloqueo protege al usuario, no es un error a esquivar.
-- **Falso positivo**: el comando solo *menciona* un `.env` como texto y no lee nada; por ejemplo, un mensaje de commit o una descripción que dice ".env". Reformular está bien: pasa el texto desde un archivo (`git commit -F mensaje.txt`) o escríbelo de otra forma ("archivo de entorno"). Si se repite, cuéntaselo al usuario.
-- **Algo legítimo que necesita pasar**: explícale al usuario qué intentabas y qué bloqueó el hook, sin el valor. Él puede permitir el comando en `SECURE_ENV_ALLOW_COMMANDS` o marcar una variable como pública en `SECURE_ENV_PUBLIC_VARS`, ambos en `.claude/skills/secure-env/config.sh`.
+- **Real block**: the command would have shown a value (it reads the `.env`, prints a variable, runs a `grep -r` that enters the `.env`). Use the alternative the message gives. Don't work around it to get the value another way (copying the file, base64-encoding it, splitting it, reading it from another interpreter): the block protects the user, it isn't an error to dodge.
+- **False positive**: the command only *mentions* a `.env` as text and reads nothing; for example, a commit message or a description that says ".env". Rephrasing is fine: pass the text from a file (`git commit -F message.txt`) or write it another way ("environment file"). If it keeps happening, tell the user.
+- **Something legitimate that needs to go through**: explain to the user what you were trying to do and what the hook blocked, without the value. They can allow the command in `SECURE_ENV_ALLOW_COMMANDS` or mark a variable as public in `SECURE_ENV_PUBLIC_VARS`, both in `.claude/skills/secure-env/config.sh`.
 
-## Escribir código que no filtre secretos
+## Writing code that doesn't leak secrets
 
-Al crear o modificar scripts que usan credenciales:
+When creating or changing scripts that use credentials:
 
-- No loguees objetos de configuración, headers, `process.env`/`os.environ`, ni el objeto de error completo de un cliente HTTP: Axios (`err.config.headers`), `requests` (`e.request.headers`), Guzzle y fetch incluyen la Authorization o la URL con token.
-- Loguea solo lo útil:
+- Don't log config objects, headers, `process.env`/`os.environ`, or an HTTP client's full error object: Axios (`err.config.headers`), `requests` (`e.request.headers`), Guzzle and fetch include the Authorization header or the URL with the token.
+- Log only what's useful:
 
 ```js
 // Node / Axios
 catch (err) {
-  console.error('HubSpot falló:', err.response?.status, err.code, err.response?.data?.message);
+  console.error('HubSpot failed:', err.response?.status, err.code, err.response?.data?.message);
 }
 ```
 
 ```python
 # Python / requests
 except requests.HTTPError as e:
-    print("HubSpot falló:", e.response.status_code, e.response.text[:300])
+    print("HubSpot failed:", e.response.status_code, e.response.text[:300])
 ```
 
 ```php
 // PHP / Guzzle
 catch (\GuzzleHttp\Exception\RequestException $e) {
-    error_log('Falló: ' . ($e->hasResponse() ? $e->getResponse()->getStatusCode() : $e->getMessage()));
+    error_log('Failed: ' . ($e->hasResponse() ? $e->getResponse()->getStatusCode() : $e->getMessage()));
 }
 ```
 
-- Para verificar que una variable cargó, muestra presencia y largo, nunca un fragmento:
-  `console.log('API_KEY', process.env.API_KEY ? `[SET len=${process.env.API_KEY.length}]` : '[FALTA]')`
-- Las URLs de webhooks son credenciales: quien tiene la URL dispara el flujo. Trátalas igual que una API key.
+- To check that a variable loaded, show presence and length, never a fragment:
+  `console.log('API_KEY', process.env.API_KEY ? `[SET len=${process.env.API_KEY.length}]` : '[MISSING]')`
+- Webhook URLs are credentials: whoever has the URL can trigger the flow. Treat them like an API key.
 
-## Si no estás en Claude Code
+## If you are not in Claude Code
 
-Los hooks vienen en el formato de Claude Code. Si eres otro agente (Codex, Cursor, Gemini CLI…) o la skill está en otra carpeta (ej. `.agents/skills/secure-env/`; la carpeta tiene que llamarse `secure-env`), las herramientas y las reglas valen igual, ajustando las rutas. Las capas 1 y 2, en cambio, no están activas hasta que escribas tu adaptador:
+The hooks come in Claude Code's format. If you are another agent (Codex, Cursor, Gemini CLI…) or the skill lives in another folder (e.g. `.agents/skills/secure-env/`; the folder must be named `secure-env`), the tools and rules still apply, with adjusted paths. Layers 1 and 2, however, aren't active until you write your adapter:
 
-1. Lee `ADAPTERS.md` (al lado de este archivo) y sigue sus pasos.
-2. No des la instalación por terminada sin pasar su verificación (bloqueo de `.env` y canario): un adaptador mal hecho no da error, deja todo pasar.
-3. Dile al usuario qué capas quedaron activas y cuáles no existen en tu entorno.
+1. Read `ADAPTERS.md` (next to this file) and follow its steps.
+2. Don't consider the installation done until it passes its verification (`.env` block and canary): a broken adapter doesn't raise an error, it lets everything through.
+3. Tell the user which layers are active and which don't exist in your environment.
 
-Mientras tanto, usa `run-secure` para todo lo que toque credenciales: redacta su propia salida en cualquier agente.
+In the meantime, use `run-secure` for everything that touches credentials: it redacts its own output in any agent.

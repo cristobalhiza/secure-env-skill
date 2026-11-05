@@ -1,18 +1,18 @@
-# secure-env — motor común (awk POSIX: funciona con gawk, mawk y el awk de macOS).
-# Invocar SIEMPRE con LC_ALL=C (trabaja por bytes).
+# secure-env — shared engine (POSIX awk: works with gawk, mawk and macOS's awk).
+# ALWAYS invoke with LC_ALL=C (works on bytes).
 #
-# Modos (-v MODE=...):
-#   redact  filtra stdin/archivos y reemplaza cada secreto por [REDACTED:NOMBRE]
-#   check   imprime "MATCH<TAB>archivo<TAB>NOMBRE" si algún archivo contiene un secreto
-#   list    lista variables de los .env sin mostrar valores secretos
-#   export  emite NOMBRE<TAB>valor-escapado para que bash las exporte
-#   set     reescribe un .env agregando/actualizando/eliminando una variable
-#   hook    decide un PreToolUse de Claude Code (payload JSON por stdin) — ver guard.awk
+# Modes (-v MODE=...):
+#   redact  filters stdin/files and replaces each secret with [REDACTED:NAME]
+#   check   prints "MATCH<TAB>file<TAB>NAME" if some file contains a secret
+#   list    lists .env variables without showing secret values
+#   export  emits NAME<TAB>escaped-value for bash to export
+#   set     rewrites a .env adding/updating/removing a variable
+#   hook    decides a Claude Code PreToolUse (JSON payload on stdin) — see guard.awk
 #
-# Entradas por ENVIRON (no por -v, para que awk no reinterprete backslashes):
-#   SE_ENVFILES  rutas de archivos .env separadas por \036
-#   SE_INHERIT   "0" para no considerar variables sensibles heredadas del entorno
-#   SECURE_ENV_* configuración (ver config.sh)
+# Inputs via ENVIRON (not -v, so awk doesn't reinterpret backslashes):
+#   SE_ENVFILES  .env file paths separated by \036
+#   SE_INHERIT   "0" to ignore sensitive variables inherited from the environment
+#   SECURE_ENV_* configuration (see config.sh)
 
 BEGIN {
   se_init()
@@ -21,7 +21,7 @@ BEGIN {
   else if (MODE == "list")   { mode_list(); exit 0 }
   else if (MODE == "export") { mode_export(); exit 0 }
   else if (MODE == "set")    { exit mode_set() }
-  else if (MODE == "hook" || MODE == "post") { }   # los maneja guard.awk (cargado como segundo -f)
+  else if (MODE == "hook" || MODE == "post") { }   # handled by guard.awk (loaded as a second -f)
   else { print "secure-env: MODE desconocido: " MODE > "/dev/stderr"; exit 2 }
 }
 
@@ -45,7 +45,7 @@ function se_init(   i) {
   NV = 0; NP = 0; NO = 0; MAXL = 0
 }
 
-# Convierte "PORT NEXT_PUBLIC_* VITE_*" en una regex ^(PORT|NEXT_PUBLIC_.*|VITE_.*)$
+# Turns "PORT NEXT_PUBLIC_* VITE_*" into a regex ^(PORT|NEXT_PUBLIC_.*|VITE_.*)$
 function globs_to_re(s,   n, a, i, j, c, g, out, r) {
   n = split(s, a, /[ \t\n,]+/)
   out = ""
@@ -65,7 +65,7 @@ function globs_to_re(s,   n, a, i, j, c, g, out, r) {
   return "^(" out ")$"
 }
 
-# ------------------------------------------------------------------ parser .env (semántica dotenv)
+# ------------------------------------------------------------------ .env parser (dotenv semantics)
 
 function parse_file(path,   line, first, k, rest, q, val, alt, body, done, i, c, n, more, rc) {
   first = 1
@@ -99,7 +99,7 @@ function parse_file(path,   line, first, k, rest, q, val, alt, body, done, i, c,
       val = rest
       if (match(val, /[ \t]#/)) val = substr(val, 1, RSTART - 1)
       sub(/[ \t]+$/, "", val)
-      # dotenv (Node) corta en el primer '#' aunque no haya espacio: lo registramos como alternativa
+      # dotenv (Node) cuts at the first '#' even without a space: we record it as an alternative
       if (index(val, "#") > 1) { alt = substr(val, 1, index(val, "#") - 1); sub(/[ \t]+$/, "", alt) }
     }
     NV++; VK[NV] = k; VV[NV] = val; VA[NV] = alt; VF[NV] = path
@@ -122,7 +122,7 @@ function unescape_dq(s,   out, i, n, c, d) {
   return out
 }
 
-# ------------------------------------------------------------------ clasificación
+# ------------------------------------------------------------------ classification
 
 function name_is_public(k) { return (k ~ PUBRE) }
 
@@ -133,19 +133,19 @@ function name_is_sensitive(k,   u) {
   return (u ~ SENSRE && u !~ SENSEXCL)
 }
 
-# ¿Debe tratarse este valor como secreto?
+# Should this value be treated as a secret?
 function value_secret(k, v,   lv) {
   if (k ~ PUBRE) return 0
   if (length(v) < MINLEN) return 0
   lv = tolower(v)
   if (lv ~ /^(true|false|null|none|nil|yes|no|on|off|undefined|localhost|development|production|staging|test|debug|info|warn|warning|error)$/) return 0
   if (STRICT || k ~ FORCERE) return 1
-  # Un origen solo (http://localhost:3000, https://app.example.com) no da acceso a nada,
-  # aunque el nombre diga AUTH (BETTER_AUTH_URL, NEXTAUTH_URL).
+  # A bare origin (http://localhost:3000, https://app.example.com) grants access to nothing,
+  # even if the name says AUTH (BETTER_AUTH_URL, NEXTAUTH_URL).
   if (is_bare_origin(v)) return 0
   if (v ~ /^[0-9][0-9.,:_-]*$/ && !REDNUM && !name_is_sensitive(k)) return 0
   if (name_is_sensitive(k)) return 1
-  # Nombre neutro (DB_HOST, AWS_REGION, API_BASE_URL...): decide la forma del valor.
+  # Neutral name (DB_HOST, AWS_REGION, API_BASE_URL...): the value's shape decides.
   if (v ~ /^[A-Za-z][A-Za-z0-9+.-]*:\/\//) return url_has_secret(v)
   if (v ~ /^[^@ \t]+@[^@ \t]+\.[A-Za-z][A-Za-z]+$/) return 0
   if (v ~ /^[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]+(:[0-9]+)?$/) return 0
@@ -159,7 +159,7 @@ function looks_random(v) {
   return (length(v) >= 16 && v ~ /[A-Za-z]/ && v ~ /[0-9]/)
 }
 
-# esquema://host[:puerto][/] sin usuario, ruta, query ni etiquetas de host con forma de token.
+# scheme://host[:port][/] with no user, path, query or token-shaped host labels.
 function is_bare_origin(v,   hp, n, a, i) {
   if (v !~ /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\/?#@ \t]+\/?$/) return 0
   hp = v; sub(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, "", hp); sub(/\/$/, "", hp); sub(/:[0-9]+$/, "", hp)
@@ -168,8 +168,8 @@ function is_bare_origin(v,   hp, n, a, i) {
   return 1
 }
 
-# Clave de una URL que no protege nada: vacía de verdad, una de las de ejemplo o igual al usuario
-# (postgres://postgres:postgres@127.0.0.1). Redactarla taparía la palabra en todas partes.
+# URL password that protects nothing: truly empty, a sample one, or equal to the user
+# (postgres://postgres:postgres@127.0.0.1). Redacting it would mask the word everywhere.
 function trivial_pw(pw, user,   l) {
   l = tolower(pw)
   return (pw == user || l ~ /^(postgres|postgresql|password|passw0rd|secret|admin|root|changeme|example|mysql|mariadb|redis|mongo|mongodb|user|test|dev|local|guest|default)$/)
@@ -184,7 +184,7 @@ function url_has_secret(v,   rest, hp, n, a, i) {
   return 0
 }
 
-# ------------------------------------------------------------------ patrones de redacción
+# ------------------------------------------------------------------ redaction patterns
 
 function load_all(inherit,   n, F, i, name) {
   n = split(ENVIRON["SE_ENVFILES"], F, SEP)
@@ -239,7 +239,7 @@ function add_pat(k, p) {
   if (length(p) > MAXL) MAXL = length(p)
 }
 
-# Ordena de mayor a menor largo (bucket sort) para que el patrón más largo gane.
+# Sorts by length, longest first (bucket sort), so the longest pattern wins.
 function finalize(   i, L, n, a, j) {
   for (i = 1; i <= NP; i++) { L = length(PV[i]); BKT[L] = BKT[L] " " i }
   NO = 0
@@ -266,7 +266,7 @@ function check_line(s,   j, i) {
   return 0
 }
 
-# Devuelve el nombre de la variable cuyo valor aparece en el archivo, o "".
+# Returns the name of the variable whose value appears in the file, or "".
 function scan_file(path, maxb,   line, bytes, rc, key) {
   if (NO == 0) return ""
   bytes = 0; key = ""
@@ -279,7 +279,7 @@ function scan_file(path, maxb,   line, bytes, rc, key) {
   return key
 }
 
-# ------------------------------------------------------------------ codificaciones
+# ------------------------------------------------------------------ encodings
 
 function json_esc(s, slash,   out, i, n, c) {
   out = ""; n = length(s)
@@ -306,7 +306,7 @@ function urlenc(s,   out, i, n, c) {
   return out
 }
 
-# base64 sin padding (así calza aunque el original tenga '=' al final)
+# base64 without padding (so it matches even if the original ends in '=')
 function b64(s,   out, i, n, c1, c2, c3, t) {
   out = ""; n = length(s)
   for (i = 1; i <= n; i += 3) {
@@ -323,7 +323,7 @@ function b64(s,   out, i, n, c1, c2, c3, t) {
 
 function b64url(s,   t) { t = b64(s); gsub(/\+/, "-", t); gsub(/\//, "_", t); return t }
 
-# Escapa \ , salto de línea y tab para transportar un valor en una sola línea (bash lo decodifica con printf %b)
+# Escapes \ , newline and tab to carry a value on a single line (bash decodes it with printf %b)
 function line_esc(s,   out, i, n, c) {
   out = ""; n = length(s)
   for (i = 1; i <= n; i++) {
@@ -337,7 +337,7 @@ function line_esc(s,   out, i, n, c) {
   return out
 }
 
-# ------------------------------------------------------------------ modo list
+# ------------------------------------------------------------------ list mode
 
 function mode_list(   n, F, i, j, cur, k, v, shown) {
   n = split(ENVIRON["SE_ENVFILES"], F, SEP)
@@ -345,23 +345,23 @@ function mode_list(   n, F, i, j, cur, k, v, shown) {
   for (i = 1; i <= n; i++) {
     if (F[i] == "") continue
     cur = NV
-    if (parse_file(F[i]) < 0) { print "# " F[i] "  (no se pudo leer)"; continue }
+    if (parse_file(F[i]) < 0) { print "# " F[i] "  (could not be read)"; continue }
     shown++
     print "# " F[i]
-    if (NV == cur) { print "  (sin variables)"; continue }
+    if (NV == cur) { print "  (no variables)"; continue }
     for (j = cur + 1; j <= NV; j++) {
       k = VK[j]; v = VV[j]
-      if (v == "") printf "  %-32s [vacía]\n", k
-      else if (value_secret(k, v)) printf "  %-32s [secreto, len=%d]\n", k, length(v)
-      else if (name_is_sensitive(k)) printf "  %-32s [oculto: nombre sensible pero valor corto o trivial, len=%d — no se redacta en salidas]\n", k, length(v)
-      else if (index(v, "\n")) printf "  %-32s [multilínea, len=%d]\n", k, length(v)
-      else printf "  %-32s = %s%s\n", k, v, (name_is_public(k) ? "   (pública)" : "   (no sensible)")
+      if (v == "") printf "  %-32s [empty]\n", k
+      else if (value_secret(k, v)) printf "  %-32s [secret, len=%d]\n", k, length(v)
+      else if (name_is_sensitive(k)) printf "  %-32s [hidden: sensitive name but short or trivial value, len=%d — not redacted in outputs]\n", k, length(v)
+      else if (index(v, "\n")) printf "  %-32s [multi-line, len=%d]\n", k, length(v)
+      else printf "  %-32s = %s%s\n", k, v, (name_is_public(k) ? "   (public)" : "   (not sensitive)")
     }
   }
-  if (shown == 0) print "No se encontraron archivos .env."
+  if (shown == 0) print "No .env files found."
 }
 
-# ------------------------------------------------------------------ modo export
+# ------------------------------------------------------------------ export mode
 
 function mode_export(   n, F, i) {
   n = split(ENVIRON["SE_ENVFILES"], F, SEP)
@@ -372,7 +372,7 @@ function mode_export(   n, F, i) {
   }
 }
 
-# ------------------------------------------------------------------ modo set
+# ------------------------------------------------------------------ set mode
 
 function fmt_val(v) {
   if (v ~ /^[A-Za-z0-9_.:\/@+=,~%-]*$/) return v
@@ -392,7 +392,7 @@ function dq_esc(s,   out, i, n, c) {
   return out
 }
 
-# ¿La línea abre una comilla que no cierra? (para saltar valores multilínea al reemplazar)
+# Does the line open a quote it doesn't close? (to skip multi-line values when replacing)
 function opens_multiline(rest,   q, body, i, n, c) {
   q = substr(rest, 1, 1)
   if (q != "\"" && q != "'" && q != "`") return ""

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# redact — muestra archivos (o stdin) con los secretos reemplazados por [REDACTED:NOMBRE].
+# redact — shows files (or stdin) with secrets replaced by [REDACTED:NAME].
 #
-#   redact.sh archivo [archivo ...]
-#   comando | redact.sh
+#   redact.sh file [file ...]
+#   command | redact.sh
 #
-# Úsalo para leer logs, respuestas guardadas o el propio .env sin exponer valores.
+# Use it to read logs, saved responses or the .env itself without exposing values.
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
@@ -15,7 +15,7 @@ export SE_ENVFILES
 status=0
 if [ $# -eq 0 ]; then se_awk -v MODE=redact; exit $?; fi
 for f in "$@"; do
-  if [ ! -r "$f" ] || [ -d "$f" ]; then echo "redact: no se puede leer $f" >&2; status=1; continue; fi
+  if [ ! -r "$f" ] || [ -d "$f" ]; then echo "redact: cannot read $f" >&2; status=1; continue; fi
   [ $# -gt 1 ] && printf '==> %s <==\n' "$f"
   se_awk -v MODE=redact "$f" || status=$?
 done

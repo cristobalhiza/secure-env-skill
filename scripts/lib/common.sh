@@ -1,4 +1,4 @@
-# secure-env — funciones compartidas (bash 3.2+; macOS, Linux, WSL y Git Bash en Windows).
+# secure-env — shared functions (bash 3.2+; macOS, Linux, WSL and Git Bash on Windows).
 # shellcheck shell=bash
 
 SE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,7 +14,7 @@ SE_SEP=$'\036'
 
 se_awk() { LC_ALL=C awk -f "$SE_LIB/engine.awk" "$@"; }
 
-# Convierte rutas estilo Windows (C:\x) a rutas de Git Bash cuando hace falta.
+# Converts Windows-style paths (C:\x) to Git Bash paths when needed.
 se_path() {
   case "$1" in
     [A-Za-z]:\\*|[A-Za-z]:/*) if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; return; fi ;;
@@ -37,7 +37,7 @@ se_is_env_file() {
   return 1
 }
 
-# Imprime (una por línea) las rutas de archivos .env con secretos del proyecto y extras.
+# Prints (one per line) the paths of the project's .env files with secrets, plus extras.
 se_discover() {
   local root="${1:-$(se_root)}" f
   local findbin=find
@@ -57,7 +57,7 @@ se_discover() {
   return 0
 }
 
-# Une líneas de stdin con el separador \036.
+# Joins stdin lines with the \036 separator.
 se_join() {
   local out="" line
   while IFS= read -r line; do
@@ -67,7 +67,7 @@ se_join() {
   printf '%s' "$out"
 }
 
-# Ruta de los scripts relativa al proyecto, para los mensajes del hook.
+# Scripts path relative to the project, for the hook messages.
 se_scripts_rel() {
   local root; root="$(se_root)"
   case "$SE_SCRIPTS" in

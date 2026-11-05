@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Suite de pruebas de secure-env. No toca tu proyecto: crea uno falso en un directorio temporal.
+# secure-env test suite. It doesn't touch your project: it builds a fake one in a temp directory.
 #   bash .claude/skills/secure-env/tests/run-tests.sh
 set -u
 
@@ -12,10 +12,10 @@ unset SECURE_ENV_PUBLIC_VARS SECURE_ENV_SECRET_VARS SECURE_ENV_STRICT SECURE_ENV
 
 pass=0; fail=0
 ok()  { pass=$((pass + 1)); }
-bad() { fail=$((fail + 1)); printf '  FALLA: %s\n' "$1"; [ -n "${2:-}" ] && printf '         %s\n' "$2"; }
+bad() { fail=$((fail + 1)); printf '  FAIL: %s\n' "$1"; [ -n "${2:-}" ] && printf '         %s\n' "$2"; }
 
-# ---------------------------------------------------------------- proyecto de prueba
-# Claves falsas armadas en dos pedazos ('sk_''live_…') para que el escaneo de secretos de GitHub no las tome por reales.
+# ---------------------------------------------------------------- test project
+# Fake keys built in two pieces ('sk_''live_…') so GitHub's secret scanning doesn't take them for real ones.
 SECRET_KEY='sk_''live_9fA2kQ7mZx81LpR4vT6wY3bN'
 HUB_TOKEN='pat-''na1-4b2c8e1f-9a7d-4c3b-8e2f-1a6d9c0b7e54'
 DB_PASS='S3cr3tP4ss!w0rd'
@@ -46,24 +46,24 @@ printf 'Base local: postgres 16 (usuario postgres). App en http://localhost:3000
 
 jesc() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/\\n}"; s="${s//$'\t'/\\t}"; printf '%s' "$s"; }
 
-hook() { # tool, campo, valor
+hook() { # tool, field, value
   printf '{"session_id":"t","transcript_path":"/x/transcript_path.jsonl","cwd":"%s","hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"%s":"%s","description":"test"}}' \
     "$(jesc "$PROJ")" "$1" "$2" "$(jesc "$3")" | bash "$S/pretool-guard.sh" 2>"$PROJ/.stderr"
 }
 
-expect() { # decision tool campo valor
+expect() { # decision tool field value
   local want="$1" out rc got
   out="$(hook "$2" "$3" "$4")"; rc=$?
   if [ $rc -eq 2 ]; then got=deny
   elif printf '%s' "$out" | grep -q '"permissionDecision":"ask"'; then got=ask
   else got=allow; fi
-  if [ "$got" = "$want" ]; then ok; else bad "[$2] esperaba $want, obtuvo $got: $4" "$(head -c 300 "$PROJ/.stderr")"; fi
+  if [ "$got" = "$want" ]; then ok; else bad "[$2] expected $want, got $got: $4" "$(head -c 300 "$PROJ/.stderr")"; fi
 }
 deny()  { expect deny  Bash command "$1"; }
 allow() { expect allow Bash command "$1"; }
 ask()   { expect ask   Bash command "$1"; }
 
-echo "== Hook: debe BLOQUEAR"
+echo "== Hook: must BLOCK"
 deny 'cat .env'
 deny 'head -5 apps/api/.env.local'
 deny 'grep API .env'
@@ -124,7 +124,7 @@ deny 'gcloud auth print-access-token'
 deny 'kubectl get secret db-creds -o yaml'
 deny 'heroku config -a myapp'
 
-# grep recursivo sobre una carpeta con .env lo lee sin nombrarlo
+# recursive grep over a folder with a .env reads it without naming it
 deny 'grep -rn "TODO" .'
 deny 'grep -r TODO'
 deny 'grep -rn TODO apps/'
@@ -132,20 +132,20 @@ deny "grep -rn TODO --exclude='*.log' ."
 deny 'rg --hidden TODO'
 deny 'rg -uu TODO'
 deny 'ack TODO'
-# el .env sigue siendo ruta cuando no es el patrón ni texto
+# the .env is still a path when it isn't the pattern or text
 deny 'grep -e API .env'
 deny 'grep -f .env src/app.js'
 deny 'git commit -m "fix" .env'
-# casos sintéticos (revisión de falsos positivos)
+# synthetic cases (false-positive review)
 deny 'diff .env.example .env'
 deny 'scp .env vps:/tmp/'
 
-echo "== Hook: debe PERMITIR"
-# git: el mensaje de -m es texto, no una ruta
+echo "== Hook: must ALLOW"
+# git: the -m message is text, not a path
 allow 'git commit -m "no versionar .env"'
 allow 'git commit --message="copiar .env.example"'
 allow 'git commit -am "actualiza docs de .env"'
-# grep: el patrón y las exclusiones no son rutas
+# grep: the pattern and exclusions aren't paths
 allow 'grep -rn "\.env" src/ README.md'
 allow 'grep -rn "TODO" src/'
 allow "grep -rn TODO --exclude='.env*' ."
@@ -153,14 +153,14 @@ allow 'grep -rn TODO --exclude=.env --exclude=.env.local .'
 allow "rg -n TODO -g '!.env*'"
 allow 'rg -n TODO'
 allow 'grep -n "API_KEY" src/app.js'
-# archivos que solo mencionan valores triviales de .env (clave "postgres", origen de BETTER_AUTH_URL)
+# files that only mention trivial .env values (password "postgres", BETTER_AUTH_URL origin)
 allow 'cat docs/DEPLOY.md'
-# casos sintéticos (revisión de falsos positivos)
+# synthetic cases (false-positive review)
 allow $'cat > notas.md <<\'EOF\'\nCopia .env.example a .env y completa\nEOF'
 allow $'cat > cfg.py <<\'EOF\'\nfrom dotenv import load_dotenv\nload_dotenv(".env")\nEOF'
 allow 'git log --oneline -- .env.example'
 allow 'git status --short .env'
-allow 'echo "Falta configurar .env"'
+allow 'echo "Set up the .env first"'
 allow 'ls -la .env*'
 allow 'wc -l .env'
 allow 'sed -n 1,5p .env.example'
@@ -212,12 +212,12 @@ allow "bash .claude/skills/secure-env/scripts/redact.sh .env"
 allow "bash .claude/skills/secure-env/scripts/env-set.sh API_KEY --generate"
 allow "cd apps/api && bash ../../.claude/skills/secure-env/scripts/run-secure.sh -- npm test"
 
-echo "== Hook: debe PREGUNTAR (archivo con un secreto adentro)"
+echo "== Hook: must ASK (file with a secret inside)"
 ask 'cat logs/response.json'
 ask 'tail -n 20 logs/response.json'
 ask 'jq . < logs/response.json'
 
-echo "== Hook: herramientas de archivo"
+echo "== Hook: file tools"
 expect deny  Read file_path "$PROJ/.env"
 expect deny  Read file_path "$PROJ/apps/api/.env.local"
 expect allow Read file_path "$PROJ/.env.example"
@@ -232,72 +232,77 @@ expect deny  Grep path "$PROJ/.env"
 expect deny  Grep glob ".env*"
 expect allow Grep path "$PROJ/src"
 
-echo "== run-secure: redacción"
+echo "== run-secure: redaction"
 cd "$PROJ" || exit 1
 out="$(bash "$S/run-secure.sh" -- 'echo "k=$API_KEY"; echo "t=$HUBSPOT_TOKEN" >&2; echo "port=$PORT"' 2>&1)"
-case "$out" in *"$SECRET_KEY"*|*"$HUB_TOKEN"*) bad "run-secure dejó pasar un secreto" "$out" ;; *) ok ;; esac
-case "$out" in *"[REDACTED:API_KEY]"*) ok ;; *) bad "no aparece [REDACTED:API_KEY]" "$out" ;; esac
-case "$out" in *"port=3000"*) ok ;; *) bad "PORT (pública) no debería redactarse" "$out" ;; esac
+case "$out" in *"$SECRET_KEY"*|*"$HUB_TOKEN"*) bad "run-secure let a secret through" "$out" ;; *) ok ;; esac
+case "$out" in *"[REDACTED:API_KEY]"*) ok ;; *) bad "[REDACTED:API_KEY] doesn't appear" "$out" ;; esac
+case "$out" in *"port=3000"*) ok ;; *) bad "PORT (public) shouldn't be redacted" "$out" ;; esac
 
 out="$(bash "$S/run-secure.sh" -- bash -c 'printf "%s" "$N8N_WEBHOOK_URL" | sed "s#/#\\\\/#g"; echo; printf "%s:" "$API_KEY" | base64; python3 -c "import urllib.parse,os;print(urllib.parse.quote(os.environ[\"DATABASE_URL\"],safe=\"\"))" 2>/dev/null || true')"
-case "$out" in *7f3c2a91*|*"$(printf '%s:' "$SECRET_KEY" | base64 | tr -d '=\n')"*) bad "variantes JSON/base64 sin redactar" "$out" ;; *) ok ;; esac
-case "$out" in *"S3cr3t"*) bad "password dentro de DATABASE_URL sin redactar" "$out" ;; *) ok ;; esac
+case "$out" in *7f3c2a91*|*"$(printf '%s:' "$SECRET_KEY" | base64 | tr -d '=\n')"*) bad "JSON/base64 variants not redacted" "$out" ;; *) ok ;; esac
+case "$out" in *"S3cr3t"*) bad "password inside DATABASE_URL not redacted" "$out" ;; *) ok ;; esac
 out="$(bash "$S/run-secure.sh" -- bash -c 'echo "base postgres en $LOCAL_DATABASE_URL y auth en $BETTER_AUTH_URL"')"
-case "$out" in "base postgres en [REDACTED:LOCAL_DATABASE_URL] y auth en http://localhost:3000") ok ;; *) bad "clave trivial de URL u origen solo redactados (o URL completa sin redactar)" "$out" ;; esac
+case "$out" in "base postgres en [REDACTED:LOCAL_DATABASE_URL] y auth en http://localhost:3000") ok ;; *) bad "trivial URL password or bare origin redacted (or full URL not redacted)" "$out" ;; esac
 
 out="$(bash "$S/run-secure.sh" -- bash -c 'printf "%s\n" "$PRIVATE_KEY"')"
-case "$out" in *MIIEvQIBADANBgkqhkiG9w0BAQEFAASC*) bad "llave privada multilínea sin redactar" "$out" ;; *) ok ;; esac
+case "$out" in *MIIEvQIBADANBgkqhkiG9w0BAQEFAASC*) bad "multi-line private key not redacted" "$out" ;; *) ok ;; esac
 
 out="$(bash "$S/run-secure.sh" -- bash -c 'echo "$AWS_REGION $API_BASE_URL $CONTACT_EMAIL"')"
-case "$out" in *"us-east-1 https://api.hubapi.com ops@example.com"*) ok ;; *) bad "valores no sensibles fueron redactados (fricción)" "$out" ;; esac
+case "$out" in *"us-east-1 https://api.hubapi.com ops@example.com"*) ok ;; *) bad "non-sensitive values were redacted (friction)" "$out" ;; esac
 
 out="$(bash "$S/run-secure.sh" -- bash -c 'echo "$STRIPE_SECRET"' )"
-[ -z "$out" ] && ok || bad "sin -f no debería cargar apps/api/.env.local" "$out"
+[ -z "$out" ] && ok || bad "without -f it shouldn't load apps/api/.env.local" "$out"
 out="$(cd apps/api && bash "$S/run-secure.sh" -- bash -c 'echo "$STRIPE_SECRET"')"
-case "$out" in "[REDACTED:STRIPE_SECRET]") ok ;; *) bad "debería cargar .env.local de la carpeta actual y redactar" "$out" ;; esac
+case "$out" in "[REDACTED:STRIPE_SECRET]") ok ;; *) bad "it should load .env.local from the current folder and redact" "$out" ;; esac
 
 out="$(GITHUB_TOKEN=ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8 bash "$S/run-secure.sh" -- bash -c 'echo $GITHUB_TOKEN')"
-case "$out" in "[REDACTED:GITHUB_TOKEN]") ok ;; *) bad "variable sensible heredada sin redactar" "$out" ;; esac
+case "$out" in "[REDACTED:GITHUB_TOKEN]") ok ;; *) bad "inherited sensitive variable not redacted" "$out" ;; esac
 out="$(CLAUDE_CODE_SESSION_ID=0f8e2c1a-5b7d-4e3f-9a6c-2d1b8e7f4a90 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-a1B2c3D4e5F6g7H8i9J0 bash "$S/run-secure.sh" -- bash -c 'echo $CLAUDE_CODE_SESSION_ID $CLAUDE_CODE_OAUTH_TOKEN')"
-case "$out" in "0f8e2c1a-5b7d-4e3f-9a6c-2d1b8e7f4a90 [REDACTED:CLAUDE_CODE_OAUTH_TOKEN]") ok ;; *) bad "id de sesión de Claude Code redactado (no es secreto) o token OAuth sin redactar" "$out" ;; esac
+case "$out" in "0f8e2c1a-5b7d-4e3f-9a6c-2d1b8e7f4a90 [REDACTED:CLAUDE_CODE_OAUTH_TOKEN]") ok ;; *) bad "Claude Code session id redacted (not a secret) or OAuth token not redacted" "$out" ;; esac
 
-bash "$S/run-secure.sh" -- bash -c 'exit 7'; [ $? -eq 7 ] && ok || bad "no propaga el código de salida"
-out="$(echo entrada-ok | bash "$S/run-secure.sh" -- cat)"; [ "$out" = "entrada-ok" ] && ok || bad "stdin no llega al comando" "$out"
+bash "$S/run-secure.sh" -- bash -c 'exit 7'; [ $? -eq 7 ] && ok || bad "doesn't propagate the exit code"
+out="$(echo entrada-ok | bash "$S/run-secure.sh" -- cat)"; [ "$out" = "entrada-ok" ] && ok || bad "stdin doesn't reach the command" "$out"
 
-echo "== PostToolUse: red de seguridad"
+echo "== PostToolUse: safety net"
 post() { printf '{"cwd":"%s","hook_event_name":"PostToolUse","tool_name":"%s","tool_input":{"command":"x"},"tool_response":%s}' "$(jesc "$PROJ")" "$1" "$2" | bash "$S/posttool-redact.sh"; }
 out="$(post Bash "{\"stdout\":\"config={\\\"key\\\":\\\"$SECRET_KEY\\\"} hook=$WEBHOOK\",\"stderr\":\"\",\"interrupted\":false,\"isImage\":false}")"
-case "$out" in *"$SECRET_KEY"*|*7f3c2a91*) bad "PostToolUse dejó pasar un secreto" "$out" ;; *) ok ;; esac
-case "$out" in *'"updatedToolOutput":{"stdout":"config={\"key\":\"[REDACTED:API_KEY]\"}'*'"interrupted":false,"isImage":false}'*) ok ;; *) bad "PostToolUse no conservó la forma del objeto Bash" "$out" ;; esac
+case "$out" in *"$SECRET_KEY"*|*7f3c2a91*) bad "PostToolUse let a secret through" "$out" ;; *) ok ;; esac
+case "$out" in *'"updatedToolOutput":{"stdout":"config={\"key\":\"[REDACTED:API_KEY]\"}'*'"interrupted":false,"isImage":false}'*) ok ;; *) bad "PostToolUse didn't keep the Bash object's shape" "$out" ;; esac
 if command -v python3 >/dev/null 2>&1; then
-  printf '%s' "$out" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null && ok || bad "PostToolUse emitió JSON inválido" "$out"
+  printf '%s' "$out" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null && ok || bad "PostToolUse emitted invalid JSON" "$out"
 fi
 out="$(post Bash '{"stdout":"todo bien","stderr":"","interrupted":false,"isImage":false}')"
-[ -z "$out" ] && ok || bad "PostToolUse no debería tocar salidas sin secretos" "$out"
+[ -z "$out" ] && ok || bad "PostToolUse shouldn't touch outputs without secrets" "$out"
 out="$(post mcp__hubspot__get "[{\"type\":\"text\",\"text\":\"token $HUB_TOKEN\"}]")"
-case "$out" in *'"updatedToolOutput":[{"type":"text","text":"token [REDACTED:HUBSPOT_TOKEN]"}]'*) ok ;; *) bad "PostToolUse no redactó la salida de un MCP" "$out" ;; esac
+case "$out" in *'"updatedToolOutput":[{"type":"text","text":"token [REDACTED:HUBSPOT_TOKEN]"}]'*) ok ;; *) bad "PostToolUse didn't redact an MCP output" "$out" ;; esac
 out="$(post Read "{\"type\":\"text\",\"file\":{\"filePath\":\"x\",\"content\":\"pk=$(printf '%s' "$SECRET_KEY" | base64 | tr -d '=\n')\"}}")"
-case "$out" in *"[REDACTED:API_KEY]"*) ok ;; *) bad "PostToolUse no redactó la variante base64" "$out" ;; esac
+case "$out" in *"[REDACTED:API_KEY]"*) ok ;; *) bad "PostToolUse didn't redact the base64 variant" "$out" ;; esac
 
 echo "== list-env-keys / redact / env-set"
 out="$(bash "$S/list-env-keys.sh")"
-case "$out" in *"$SECRET_KEY"*|*"$HUB_TOKEN"*|*S3cr3t*) bad "list-env-keys muestra un secreto" "$out" ;; *) ok ;; esac
-case "$out" in *"PORT"*"3000"*"(pública)"*) ok ;; *) bad "list-env-keys no muestra PORT" "$out" ;; esac
+case "$out" in *"$SECRET_KEY"*|*"$HUB_TOKEN"*|*S3cr3t*) bad "list-env-keys shows a secret" "$out" ;; *) ok ;; esac
+case "$out" in *"PORT"*"3000"*"(public)"*) ok ;; *) bad "list-env-keys doesn't show PORT" "$out" ;; esac
 out="$(bash "$S/redact.sh" .env)"
-case "$out" in *"$SECRET_KEY"*|*"$HUB_TOKEN"*) bad "redact.sh .env muestra un secreto" "$out" ;; *) ok ;; esac
-case "$out" in *"API_KEY=[REDACTED:API_KEY]"*) ok ;; *) bad "redact.sh no redacta como se espera" "$out" ;; esac
+case "$out" in *"$SECRET_KEY"*|*"$HUB_TOKEN"*) bad "redact.sh .env shows a secret" "$out" ;; *) ok ;; esac
+case "$out" in *"API_KEY=[REDACTED:API_KEY]"*) ok ;; *) bad "redact.sh doesn't redact as expected" "$out" ;; esac
 
-out="$(bash "$S/env-set.sh" NEW_TOKEN 'valor con espacios #1')"
-case "$out" in *"valor con espacios"*) bad "env-set imprimió el valor" "$out" ;; *) ok ;; esac
-grep -q "^NEW_TOKEN='valor con espacios #1'$" .env && ok || bad "env-set no escribió la línea esperada" "$(tail -2 .env)"
-bash "$S/env-set.sh" PORT 4000 >/dev/null && grep -q '^PORT=4000$' .env && ! grep -q '^PORT=3000$' .env && ok || bad "env-set no actualizó PORT"
-grep -q '^# credenciales$' .env && ok || bad "env-set borró comentarios"
-bash "$S/env-set.sh" PRIVATE_KEY --unset >/dev/null && ! grep -q 'PRIVATE KEY' .env && grep -q '^NEW_TOKEN=' .env && ok || bad "env-set --unset con valor multilínea"
+out="$(bash "$S/env-set.sh" NEW_TOKEN 'value with spaces #1')"
+case "$out" in *"value with spaces"*) bad "env-set printed the value" "$out" ;; *) ok ;; esac
+grep -q "^NEW_TOKEN='value with spaces #1'$" .env && ok || bad "env-set didn't write the expected line" "$(tail -2 .env)"
+bash "$S/env-set.sh" PORT 4000 >/dev/null && grep -q '^PORT=4000$' .env && ! grep -q '^PORT=3000$' .env && ok || bad "env-set didn't update PORT"
+grep -q '^# credenciales$' .env && ok || bad "env-set deleted comments"
+bash "$S/env-set.sh" PRIVATE_KEY --unset >/dev/null && ! grep -q 'PRIVATE KEY' .env && grep -q '^NEW_TOKEN=' .env && ok || bad "env-set --unset with a multi-line value"
 out="$(bash "$S/env-set.sh" -f apps/api/.env.local JWT_SECRET --generate 16)"
 grep -Eq '^JWT_SECRET=[0-9a-f]{32}$' apps/api/.env.local && ok || bad "env-set --generate" "$out"
-bash "$S/env-set.sh" -f nuevo/.env X 1 >/dev/null 2>&1; [ ! -e nuevo/.env ] && ok || bad "env-set creó un directorio inexistente"
-bash "$S/env-set.sh" -f .env.nuevo FOO bar >/dev/null && perm="$(ls -l .env.nuevo | cut -c1-10)" && [ "$perm" = "-rw-------" ] && ok || bad "archivo nuevo sin permisos 600" "${perm:-}"
+bash "$S/env-set.sh" -f nuevo/.env X 1 >/dev/null 2>&1; [ ! -e nuevo/.env ] && ok || bad "env-set created a nonexistent directory"
+bash "$S/env-set.sh" -f .env.nuevo FOO bar >/dev/null && perm="$(ls -l .env.nuevo | cut -c1-10)"
+case "$(uname -s)" in
+  # Git Bash on NTFS has no Unix permissions (ls always shows -rw-r--r--): only check that the file exists.
+  MINGW*|MSYS*|CYGWIN*) [ -f .env.nuevo ] && ok || bad "env-set didn't create the new file" ;;
+  *) [ "${perm:-}" = "-rw-------" ] && ok || bad "new file without mode 600" "${perm:-}" ;;
+esac
 
 echo
-echo "Resultado: $pass OK, $fail fallas"
+echo "Result: $pass OK, $fail failures"
 [ $fail -eq 0 ]

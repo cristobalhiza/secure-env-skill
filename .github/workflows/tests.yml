@@ -1,0 +1,58 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu (mawk, the default awk)
+            os: ubuntu-latest
+            awk: mawk
+          - name: Ubuntu (gawk)
+            os: ubuntu-latest
+            awk: gawk
+          # /bin/bash 3.2 and the BSD awk that ship with macOS, not Homebrew's.
+          - name: macOS (bash 3.2, BSD awk)
+            os: macos-latest
+            path: /bin:/usr/bin
+          # Git Bash, the shell Claude Code uses on Windows.
+          - name: Windows (Git Bash)
+            os: windows-latest
+    defaults:
+      run:
+        shell: bash
+        # The guard recognizes its own scripts by the path secure-env/scripts/, as in a real install.
+        working-directory: secure-env
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: secure-env
+
+      - name: Pick awk
+        if: matrix.awk
+        run: |
+          command -v ${{ matrix.awk }} >/dev/null || sudo apt-get install -y ${{ matrix.awk }}
+          mkdir -p "$RUNNER_TEMP/awkbin"
+          ln -sf "$(command -v ${{ matrix.awk }})" "$RUNNER_TEMP/awkbin/awk"
+          echo "$RUNNER_TEMP/awkbin" >> "$GITHUB_PATH"
+
+      - name: Environment
+        run: |
+          [ -n "${{ matrix.path }}" ] && export PATH="${{ matrix.path }}:$PATH"
+          echo "bash: $(command -v bash) $BASH_VERSION"
+          echo "awk:  $(command -v awk)"; awk --version 2>/dev/null | head -1 || awk -W version 2>/dev/null | head -1 || true
+          # CRLF in scripts would break bash; .gitattributes must keep LF on every OS.
+          if grep -rlI $'\r' --include='*.sh' --include='*.awk' .; then echo "CRLF found in scripts"; exit 1; fi
+
+      - name: Run tests
+        run: |
+          [ -n "${{ matrix.path }}" ] && export PATH="${{ matrix.path }}:$PATH"
+          bash tests/run-tests.sh

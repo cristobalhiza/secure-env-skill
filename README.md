@@ -6,6 +6,14 @@ Keeps `.env` values (API keys, tokens, passwords, webhook URLs) out of a coding 
 
 ## Installation (2 minutes)
 
+Paste this to Claude Code from your project root:
+
+> Install https://github.com/cristobalhiza/secure-env-skill in this project following its README.
+
+That's it. The steps below are what the agent runs, in case you prefer to do it by hand.
+
+### Manual install
+
 1. From your project root:
    ```bash
    git clone --depth 1 https://github.com/cristobalhiza/secure-env-skill .claude/skills/secure-env
@@ -106,7 +114,11 @@ bash .claude/skills/secure-env/tests/run-tests.sh
 
 ## Other agents
 
-The engine and the tools (`run-secure`, `redact`, `list-env-keys`, `env-set`) are bash and awk, with nothing Claude Code–specific. The only specific part is the hooks' JSON. In another agent (Codex, Cursor, Gemini CLI, Antigravity…), install it with git, from the project root:
+The engine and the tools (`run-secure`, `redact`, `list-env-keys`, `env-set`) are bash and awk, with nothing Claude Code–specific. The only specific part is the hooks' JSON. In another agent (Codex, Cursor, Gemini CLI, Antigravity…), paste this from your project root:
+
+> Install https://github.com/cristobalhiza/secure-env-skill following the "Other agents" section of its README: copy it with git clone, don't rewrite the files, and adapt it to yourself following ADAPTERS.md.
+
+What the agent runs, if you prefer to do it by hand:
 
 ```bash
 git clone --depth 1 https://github.com/cristobalhiza/secure-env-skill .agents/skills/secure-env
@@ -154,6 +166,14 @@ Evita que los valores de `.env` (API keys, tokens, contraseñas, URLs de webhook
 Los mensajes de la skill (bloqueos, avisos, salida de los scripts) están en inglés. Los bloqueos los lee el agente, que te los explica en tu idioma.
 
 ## Instalación (2 minutos)
+
+Pégale esto a Claude Code desde la raíz de tu proyecto:
+
+> Instala https://github.com/cristobalhiza/secure-env-skill en este proyecto siguiendo su README.
+
+Eso es todo. Los pasos de abajo son lo que ejecuta el agente, por si prefieres hacerlo a mano.
+
+### Instalación manual
 
 1. Desde la raíz de tu proyecto:
    ```bash
@@ -255,7 +275,11 @@ bash .claude/skills/secure-env/tests/run-tests.sh
 
 ## Otros agentes
 
-El motor y las herramientas (`run-secure`, `redact`, `list-env-keys`, `env-set`) son bash y awk, sin nada de Claude Code. Lo único específico es el JSON de los hooks. En otro agente (Codex, Cursor, Gemini CLI, Antigravity…), instálala con git, desde la raíz del proyecto:
+El motor y las herramientas (`run-secure`, `redact`, `list-env-keys`, `env-set`) son bash y awk, sin nada de Claude Code. Lo único específico es el JSON de los hooks. En otro agente (Codex, Cursor, Gemini CLI, Antigravity…), pégale esto desde la raíz del proyecto:
+
+> Instala https://github.com/cristobalhiza/secure-env-skill siguiendo la sección "Otros agentes" de su README: cópiala con git clone, no reescribas los archivos y adáptala a ti siguiendo ADAPTERS.md.
+
+Lo que ejecuta el agente, por si prefieres hacerlo a mano:
 
 ```bash
 git clone --depth 1 https://github.com/cristobalhiza/secure-env-skill .agents/skills/secure-env
